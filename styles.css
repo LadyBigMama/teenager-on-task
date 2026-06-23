@@ -321,7 +321,7 @@ button {
 
 .task-form {
   display: grid;
-  grid-template-columns: minmax(280px, 1.6fr) minmax(150px, 0.72fr) minmax(250px, 1.15fr) 112px 124px;
+  grid-template-columns: minmax(260px, 1.55fr) minmax(140px, 0.7fr) minmax(230px, 1.08fr) minmax(128px, 0.66fr) 112px 124px;
   gap: 14px;
   align-items: end;
 }
@@ -823,12 +823,13 @@ input:disabled {
     grid-column: span 2;
   }
 
+  .repeat-field,
   .points-field {
     grid-column: span 1;
   }
 
   .primary-action {
-    grid-column: span 3;
+    grid-column: span 2;
   }
 }
 
@@ -847,6 +848,7 @@ input:disabled {
   .field-title,
   .task-form .field:nth-of-type(2),
   .task-form .field:nth-of-type(3),
+  .repeat-field,
   .points-field,
   .primary-action {
     grid-column: auto;

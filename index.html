@@ -97,6 +97,14 @@
                 <button class="date-clear" id="clearDueDate" type="button">No Date</button>
               </div>
             </div>
+            <div class="field repeat-field">
+              <label for="taskRepeat">Repeat</label>
+              <select id="taskRepeat" name="repeat">
+                <option value="none">Once</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
             <div class="field points-field">
               <label for="taskPoints">Moral Value</label>
               <input id="taskPoints" name="points" type="number" min="1" max="20" step="1" value="5">

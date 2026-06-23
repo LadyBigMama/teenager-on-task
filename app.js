@@ -78,6 +78,7 @@ const els = {
   due: document.querySelector("#taskDue"),
   dateEntry: document.querySelector(".date-entry"),
   clearDueDate: document.querySelector("#clearDueDate"),
+  repeat: document.querySelector("#taskRepeat"),
   points: document.querySelector("#taskPoints"),
   taskList: document.querySelector("#taskList"),
   listTitle: document.querySelector("#listTitle"),
@@ -117,17 +118,20 @@ function init() {
     day: "numeric"
   }).format(today);
   setNoDateMode(false, toDateInput(today));
+  syncRepeatPreview();
   syncPointPreview();
 
   els.form.addEventListener("submit", addTask);
   els.title.addEventListener("input", syncPointPreview);
   els.clearDueDate.addEventListener("click", () => {
     setNoDateMode(!isNoDateMode());
+    syncRepeatPreview();
   });
   els.due.addEventListener("input", () => {
     if (els.due.value) {
       setNoDateMode(false, els.due.value);
     }
+    syncRepeatPreview();
   });
   els.taskList.addEventListener("click", handleTaskAction);
   els.statBlocks.forEach(button => {
@@ -319,19 +323,34 @@ function normalizeTask(task) {
   const settings = getTaskSettings(task.title);
   const activeDishwasher = settings.dailyTarget > 1 && !task.completedAt && !task.cancelledAt;
   const due = task.due || (activeDishwasher ? today : "");
-  const repeatsDaily = Boolean(due && (task.repeatsDaily || due === today || settings.dailyTarget > 1));
+  const repeatRule = normalizeRepeatRule(task, due, settings);
+  const repeatsDaily = repeatRule === "daily";
   return {
     ...task,
     due,
     points: normalizeTaskPoints(task, settings),
+    repeatRule,
     repeatsDaily,
-    recurringGroupId: repeatsDaily ? task.recurringGroupId || task.id : task.recurringGroupId || null,
+    recurringGroupId: repeatRule !== "none" ? task.recurringGroupId || task.id : task.recurringGroupId || null,
     dailyTarget: repeatsDaily ? settings.dailyTarget : 1,
     pendingAt: task.pendingAt || null,
     completedAt: task.completedAt || null,
     rejectedAt: task.rejectedAt || null,
     cancelledAt: task.cancelledAt || null
   };
+}
+
+function normalizeRepeatRule(task, due, settings) {
+  if (settings.dailyTarget > 1) {
+    return "daily";
+  }
+  if (!due) {
+    return "none";
+  }
+  if (task.repeatRule === "weekly" || task.repeatRule === "daily" || task.repeatRule === "none") {
+    return task.repeatRule;
+  }
+  return task.repeatsDaily || due === toDateInput(new Date()) ? "daily" : "none";
 }
 
 function normalizeTaskPoints(task, settings) {
@@ -391,6 +410,7 @@ function addTask(event) {
   const pointsValue = getPointInputValue(settings.points);
   const selectedDueValue = isNoDateMode() ? "" : els.due.value;
   const dueValue = settings.dailyTarget > 1 ? selectedDueValue || todayValue : selectedDueValue;
+  const repeatRule = getSelectedRepeatRule(dueValue, settings);
 
   tasks.push({
     id: crypto.randomUUID(),
@@ -398,8 +418,9 @@ function addTask(event) {
     type: els.type.value,
     due: dueValue || "",
     points: pointsValue,
-    repeatsDaily: Boolean(dueValue && (dueValue === todayValue || settings.dailyTarget > 1)),
-    recurringGroupId: dueValue && dueValue === todayValue ? crypto.randomUUID() : null,
+    repeatRule,
+    repeatsDaily: repeatRule === "daily",
+    recurringGroupId: repeatRule !== "none" ? crypto.randomUUID() : null,
     dailyTarget: settings.dailyTarget,
     pendingAt: null,
     completedAt: null,
@@ -410,11 +431,35 @@ function addTask(event) {
 
   els.form.reset();
   setNoDateMode(!dueValue, dueValue ? todayValue : "");
+  syncRepeatPreview();
   tasks = refreshDailyTasks(tasks);
   syncPointPreview();
   saveTasks();
   render(randomFrom(QUIPS.add));
   showToast("Case pinned. The desk pretends this was its idea.");
+}
+
+function getSelectedRepeatRule(dueValue, settings) {
+  if (settings.dailyTarget > 1) {
+    return "daily";
+  }
+  if (!dueValue) {
+    return "none";
+  }
+  if (els.repeat.value === "daily" || els.repeat.value === "weekly") {
+    return els.repeat.value;
+  }
+  return "none";
+}
+
+function syncRepeatPreview() {
+  if (isNoDateMode()) {
+    els.repeat.value = "none";
+    els.repeat.disabled = true;
+    return;
+  }
+  els.repeat.disabled = false;
+  els.repeat.value = els.due.value === toDateInput(new Date()) ? "daily" : "none";
 }
 
 function syncPointPreview() {
@@ -511,8 +556,8 @@ function approveTask(task) {
   task.completedAt = new Date().toISOString();
   task.pendingAt = null;
   task.rejectedAt = null;
-  if (task.repeatsDaily) {
-    ensureNextDailyRepeat(task);
+  if (getTaskRepeatRule(task) !== "none") {
+    ensureNextRepeat(task);
   }
   saveTasks();
   render(randomFrom(QUIPS.win));
@@ -557,8 +602,8 @@ function cancelTask(task) {
     return;
   }
 
-  if (task.repeatsDaily && getTaskStatus(task).daysUntil <= 0) {
-    ensureNextDailyRepeat(task);
+  if (getTaskRepeatRule(task) !== "none" && getTaskStatus(task).daysUntil <= 0) {
+    ensureNextRepeat(task);
   }
 
   task.cancelledAt = new Date().toISOString();
@@ -589,6 +634,37 @@ function ensureNextDailyRepeat(task) {
   }
 }
 
+function ensureNextWeeklyRepeat(task) {
+  const today = startOfDay(new Date());
+  const originalDue = parseDate(task.due) || today;
+  let nextDue = addDays(originalDue, 7);
+  while (nextDue <= today) {
+    nextDue = addDays(nextDue, 7);
+  }
+  const nextDueString = toDateInput(nextDue);
+  const groupId = task.recurringGroupId || task.id;
+  const nextDueExists = tasks.some(item => {
+    return item.recurringGroupId === groupId && item.due === nextDueString && !item.cancelledAt;
+  });
+
+  task.repeatRule = "weekly";
+  task.repeatsDaily = false;
+  task.recurringGroupId = groupId;
+  task.dailyTarget = 1;
+
+  if (!nextDueExists) {
+    tasks.push(createWeeklyRepeat(task, nextDue));
+  }
+}
+
+function ensureNextRepeat(task) {
+  if (getTaskRepeatRule(task) === "weekly") {
+    ensureNextWeeklyRepeat(task);
+    return;
+  }
+  ensureNextDailyRepeat(task);
+}
+
 function createDailyRepeat(source, dueDate) {
   const settings = getTaskSettings(source.title);
   return {
@@ -597,6 +673,7 @@ function createDailyRepeat(source, dueDate) {
     type: source.type,
     due: toDateInput(dueDate),
     points: normalizeTaskPoints(source, settings),
+    repeatRule: "daily",
     repeatsDaily: true,
     recurringGroupId: source.recurringGroupId || source.id,
     dailyTarget: settings.dailyTarget,
@@ -606,6 +683,36 @@ function createDailyRepeat(source, dueDate) {
     cancelledAt: null,
     createdAt: new Date().toISOString()
   };
+}
+
+function createWeeklyRepeat(source, dueDate) {
+  const settings = getTaskSettings(source.title);
+  return {
+    id: crypto.randomUUID(),
+    title: source.title,
+    type: source.type,
+    due: toDateInput(dueDate),
+    points: normalizeTaskPoints(source, settings),
+    repeatRule: "weekly",
+    repeatsDaily: false,
+    recurringGroupId: source.recurringGroupId || source.id,
+    dailyTarget: 1,
+    pendingAt: null,
+    completedAt: null,
+    rejectedAt: null,
+    cancelledAt: null,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function getTaskRepeatRule(task) {
+  if (task.repeatRule === "weekly") {
+    return "weekly";
+  }
+  if (task.repeatRule === "daily" || task.repeatsDaily) {
+    return "daily";
+  }
+  return "none";
 }
 
 function getDailyTarget(task) {
@@ -870,6 +977,8 @@ function renderTask(task) {
   );
   if (task.repeatsDaily) {
     meta.append(makeMeta(getDailyTarget(task) > 1 ? `${getDailyTarget(task)}x daily` : "Repeats daily"));
+  } else if (getTaskRepeatRule(task) === "weekly") {
+    meta.append(makeMeta("Repeats weekly"));
   }
   if (task.pendingAt) {
     meta.append(makeMeta(`Filed ${formatDateTime(task.pendingAt)}`));
