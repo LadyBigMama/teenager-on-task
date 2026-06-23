@@ -5,6 +5,7 @@ const DISHWASHER_DAILY_TARGET = 3;
 const PASSWORD_KEY = "reed-desk-cancel-password-v1";
 const LEGACY_STORAGE_KEY = "rat-detective-tasks-v2";
 const LEGACY_PASSWORD_KEY = "rat-detective-cancel-password-v1";
+const PENDING_REPAIR_KEY = "reed-desk-pending-review-repair-2026-06-23";
 const FILTER_LABELS = {
   active: "Unsolved Cases",
   overdue: "Critical Cases",
@@ -95,7 +96,7 @@ const els = {
   toast: document.querySelector("#toast")
 };
 
-let tasks = refreshDailyTasks(loadTasks());
+let tasks = refreshDailyTasks(clearPendingReviewOnce(loadTasks()));
 let activeFilter = "today";
 let lastQuote = "";
 let toastTimer = 0;
@@ -152,6 +153,22 @@ function loadTasks() {
     }
   }
   return [];
+}
+
+function clearPendingReviewOnce(allTasks) {
+  if (localStorage.getItem(PENDING_REPAIR_KEY)) {
+    return allTasks;
+  }
+  localStorage.setItem(PENDING_REPAIR_KEY, new Date().toISOString());
+  return allTasks.map(task => {
+    if (!task.pendingAt || task.completedAt || task.cancelledAt) {
+      return task;
+    }
+    return {
+      ...task,
+      pendingAt: null
+    };
+  });
 }
 
 function normalizeTask(task) {
