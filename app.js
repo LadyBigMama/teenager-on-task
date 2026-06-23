@@ -323,7 +323,7 @@ function normalizeTask(task) {
   return {
     ...task,
     due,
-    points: settings.points,
+    points: normalizeTaskPoints(task, settings),
     repeatsDaily,
     recurringGroupId: repeatsDaily ? task.recurringGroupId || task.id : task.recurringGroupId || null,
     dailyTarget: repeatsDaily ? settings.dailyTarget : 1,
@@ -332,6 +332,17 @@ function normalizeTask(task) {
     rejectedAt: task.rejectedAt || null,
     cancelledAt: task.cancelledAt || null
   };
+}
+
+function normalizeTaskPoints(task, settings) {
+  const value = Number(task.points);
+  if (settings.dailyTarget > 1 && (!Number.isFinite(value) || value === MORAL_VALUE)) {
+    return settings.points;
+  }
+  if (Number.isFinite(value)) {
+    return clamp(value, 1, 20);
+  }
+  return settings.points;
 }
 
 function refreshDailyTasks(allTasks) {
@@ -377,6 +388,7 @@ function addTask(event) {
 
   const todayValue = toDateInput(new Date());
   const settings = getTaskSettings(title);
+  const pointsValue = getPointInputValue(settings.points);
   const selectedDueValue = isNoDateMode() ? "" : els.due.value;
   const dueValue = settings.dailyTarget > 1 ? selectedDueValue || todayValue : selectedDueValue;
 
@@ -385,7 +397,7 @@ function addTask(event) {
     title,
     type: els.type.value,
     due: dueValue || "",
-    points: settings.points,
+    points: pointsValue,
     repeatsDaily: Boolean(dueValue && (dueValue === todayValue || settings.dailyTarget > 1)),
     recurringGroupId: dueValue && dueValue === todayValue ? crypto.randomUUID() : null,
     dailyTarget: settings.dailyTarget,
@@ -406,7 +418,14 @@ function addTask(event) {
 }
 
 function syncPointPreview() {
+  if (document.activeElement === els.points) {
+    return;
+  }
   els.points.value = getTaskSettings(els.title.value).points;
+}
+
+function getPointInputValue(fallback = MORAL_VALUE) {
+  return clamp(Number.parseInt(els.points.value, 10) || fallback, 1, 20);
 }
 
 function getTaskSettings(title) {
@@ -577,7 +596,7 @@ function createDailyRepeat(source, dueDate) {
     title: source.title,
     type: source.type,
     due: toDateInput(dueDate),
-    points: settings.points,
+    points: normalizeTaskPoints(source, settings),
     repeatsDaily: true,
     recurringGroupId: source.recurringGroupId || source.id,
     dailyTarget: settings.dailyTarget,
