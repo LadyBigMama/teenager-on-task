@@ -155,6 +155,8 @@ function getCloudConfig() {
   const anonKey = String(config.anonKey || "");
   const householdId = String(config.householdId || "");
   const table = String(config.table || CLOUD_TABLE);
+  const approvalNotifications = config.approvalNotifications || {};
+  const approvalNotificationFunction = String(approvalNotifications.functionName || "notify-approval");
   const enabled = Boolean(
     url &&
     anonKey &&
@@ -169,6 +171,8 @@ function getCloudConfig() {
     anonKey,
     householdId,
     table,
+    approvalNotificationsEnabled: Boolean(approvalNotifications.enabled),
+    approvalNotificationFunction,
     enabled
   };
 }
@@ -542,8 +546,62 @@ function fileTaskForReview(task) {
   task.pendingAt = new Date().toISOString();
   task.rejectedAt = null;
   saveTasks();
+  notifyApprovalPending(task);
   render("AUTHORITY CHECK [Trivial: Pending] - Filed, not proven. The clipboard narrows its eyes.");
   showToast("Filed for parent review. No moral points yet.");
+}
+
+function notifyApprovalPending(task) {
+  if (!cloudConfig.enabled || !cloudConfig.approvalNotificationsEnabled || !task.pendingAt) {
+    return;
+  }
+
+  const payload = {
+    householdId: cloudConfig.householdId,
+    taskId: task.id,
+    pendingAt: task.pendingAt
+  };
+
+  window.setTimeout(() => sendApprovalNotification(payload), 900);
+}
+
+async function sendApprovalNotification(payload, attempt = 0) {
+  try {
+    const response = await fetch(`${cloudConfig.url}/functions/v1/${cloudConfig.approvalNotificationFunction}`, {
+      method: "POST",
+      headers: {
+        ...getCloudHeaders(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.status === 409 && attempt < 2) {
+      window.setTimeout(() => sendApprovalNotification(payload, attempt + 1), 900);
+      return;
+    }
+
+    if (response.status === 404) {
+      console.warn("Approval notification function is not deployed yet.");
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Approval notification failed: ${await response.text()}`);
+    }
+
+    const result = await response.json().catch(() => ({}));
+    if (result.notified) {
+      showToast("SMS notification sent.");
+    }
+  } catch (error) {
+    console.warn(error);
+    if (attempt < 2) {
+      window.setTimeout(() => sendApprovalNotification(payload, attempt + 1), 1200);
+      return;
+    }
+    showToast("SMS notification failed. Approval is still filed.");
+  }
 }
 
 function approveTask(task) {
