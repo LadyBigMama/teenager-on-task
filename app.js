@@ -278,15 +278,6 @@ function handleTaskAction(event) {
     return;
   }
 
-  if (button.dataset.action === "snooze") {
-    task.due = toDateInput(addDays(startOfDay(new Date()), 1));
-    task.rejectedAt = null;
-    saveTasks();
-    render("EXECUTIVE STATIC [Medium: Compromise] - Snoozed to tomorrow. A legal maneuver, technically.");
-    showToast("Moved to tomorrow.");
-    return;
-  }
-
   if (button.dataset.action === "delete") {
     cancelTask(task);
   }
@@ -697,7 +688,6 @@ function renderTask(task) {
     );
   } else {
     actions.append(
-      makeActionButton("snooze", "Snooze task to tomorrow", "⏱"),
       makeActionButton("delete", "Cancel task with parent password", "×", "delete")
     );
   }
