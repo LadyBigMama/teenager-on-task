@@ -79,7 +79,6 @@ const els = {
   clearDueDate: document.querySelector("#clearDueDate"),
   points: document.querySelector("#taskPoints"),
   taskList: document.querySelector("#taskList"),
-  emptyState: document.querySelector("#emptyState"),
   listTitle: document.querySelector("#listTitle"),
   statBlocks: document.querySelectorAll(".stat-block"),
   todayLabel: document.querySelector("#todayLabel"),
@@ -514,10 +513,8 @@ function render(forcedQuote) {
   els.taskList.innerHTML = "";
   if (activeFilter === "accounting") {
     els.taskList.appendChild(renderAccounting(state));
-    els.emptyState.hidden = true;
   } else {
     filtered.forEach(task => els.taskList.appendChild(renderTask(task)));
-    els.emptyState.hidden = activeFilter !== "today" || filtered.length > 0 || tasks.length > 0;
   }
 
   els.overdueCount.textContent = state.openCount;

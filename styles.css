@@ -753,23 +753,6 @@ input:disabled {
   color: var(--blue);
 }
 
-.empty-state {
-  display: grid;
-  gap: 6px;
-  justify-items: center;
-  padding: 34px 18px;
-  border: 1px dashed #c9beae;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.55);
-  color: var(--muted);
-  text-align: center;
-}
-
-.empty-state strong {
-  color: var(--ink);
-  font-size: 18px;
-}
-
 .toast {
   position: fixed;
   left: 50%;
