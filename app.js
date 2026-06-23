@@ -517,7 +517,7 @@ function render(forcedQuote) {
     els.emptyState.hidden = true;
   } else {
     filtered.forEach(task => els.taskList.appendChild(renderTask(task)));
-    els.emptyState.hidden = activeFilter !== "today" || filtered.length > 0;
+    els.emptyState.hidden = activeFilter !== "today" || filtered.length > 0 || state.openCount > 0;
   }
 
   els.overdueCount.textContent = state.openCount;
