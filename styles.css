@@ -370,6 +370,13 @@ input[readonly] {
   cursor: default;
 }
 
+input:disabled {
+  color: var(--muted);
+  background: #f0ece4;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .primary-action,
 .ghost-button,
 .date-clear,
@@ -388,6 +395,13 @@ input[readonly] {
   border: 1px solid var(--line);
   border-left: 0;
   border-radius: 0 8px 8px 0;
+}
+
+.date-clear.is-active,
+.date-clear[aria-pressed="true"] {
+  background: var(--teal);
+  color: #fffdf8;
+  border-color: var(--teal);
 }
 
 .date-entry input {

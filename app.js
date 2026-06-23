@@ -72,6 +72,7 @@ const els = {
   title: document.querySelector("#taskTitle"),
   type: document.querySelector("#taskType"),
   due: document.querySelector("#taskDue"),
+  dateEntry: document.querySelector(".date-entry"),
   clearDueDate: document.querySelector("#clearDueDate"),
   points: document.querySelector("#taskPoints"),
   taskList: document.querySelector("#taskList"),
@@ -107,11 +108,16 @@ function init() {
     month: "short",
     day: "numeric"
   }).format(today);
-  els.due.value = toDateInput(today);
+  setNoDateMode(false, toDateInput(today));
 
   els.form.addEventListener("submit", addTask);
   els.clearDueDate.addEventListener("click", () => {
-    els.due.value = "";
+    setNoDateMode(!isNoDateMode());
+  });
+  els.due.addEventListener("input", () => {
+    if (els.due.value) {
+      setNoDateMode(false, els.due.value);
+    }
   });
   els.taskList.addEventListener("click", handleTaskAction);
   els.statBlocks.forEach(button => {
@@ -198,24 +204,39 @@ function addTask(event) {
     return;
   }
 
+  const dueValue = isNoDateMode() ? "" : els.due.value;
+  const todayValue = toDateInput(new Date());
+
   tasks.push({
     id: crypto.randomUUID(),
     title,
     type: els.type.value,
-    due: els.due.value || "",
+    due: dueValue || "",
     points: MORAL_VALUE,
-    repeatsDaily: Boolean(els.due.value && els.due.value === toDateInput(new Date())),
-    recurringGroupId: els.due.value && els.due.value === toDateInput(new Date()) ? crypto.randomUUID() : null,
+    repeatsDaily: Boolean(dueValue && dueValue === todayValue),
+    recurringGroupId: dueValue && dueValue === todayValue ? crypto.randomUUID() : null,
     completedAt: null,
     createdAt: new Date().toISOString()
   });
 
   els.form.reset();
-  els.due.value = toDateInput(new Date());
+  setNoDateMode(!dueValue, dueValue ? todayValue : "");
   els.points.value = MORAL_VALUE;
   saveTasks();
   render(randomFrom(QUIPS.add));
   showToast("Case pinned. The desk pretends this was its idea.");
+}
+
+function isNoDateMode() {
+  return els.clearDueDate.getAttribute("aria-pressed") === "true";
+}
+
+function setNoDateMode(isActive, dateValue = toDateInput(new Date())) {
+  els.clearDueDate.setAttribute("aria-pressed", String(isActive));
+  els.clearDueDate.classList.toggle("is-active", isActive);
+  els.dateEntry.classList.toggle("is-no-date", isActive);
+  els.due.disabled = isActive;
+  els.due.value = isActive ? "" : dateValue;
 }
 
 function handleTaskAction(event) {
