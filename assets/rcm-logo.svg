@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 140" role="img" aria-labelledby="title desc">
+  <title id="title">RCM logo</title>
+  <desc id="desc">Thick grey capital letters RCM in a compact block mark.</desc>
+  <rect width="320" height="140" rx="10" fill="#26323a"/>
+  <text x="160" y="96" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="88" font-weight="900" letter-spacing="-4" fill="#aeb4b6" stroke="#f4efe5" stroke-width="3">RCM</text>
+  <path d="M21 24h278M21 116h278" stroke="#6f797c" stroke-width="8" stroke-linecap="square"/>
+</svg>

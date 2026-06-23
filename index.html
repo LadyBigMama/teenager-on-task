@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Entropy Division</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Entropy Division summary">
+        <div class="brand">
+          <img class="brand-logo" src="assets/rcm-logo.svg" alt="RCM logo">
+          <div>
+            <p class="eyebrow">Revachol Citizen Militia</p>
+            <h1>Entropy Division</h1>
+          </div>
+        </div>
+
+        <section class="brief-panel" aria-live="polite">
+          <div class="brief-quote" id="briefQuote"></div>
+          <div class="entropy-meter">
+            <span>Entropy</span>
+            <div class="meter-track" aria-hidden="true">
+              <div class="meter-fill" id="slackMeter"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="thought-panel" aria-label="Inner voices">
+          <h2>Inner Voices</h2>
+          <div class="thought-log" id="thoughtLog"></div>
+        </section>
+
+        <section class="score-board" aria-label="Rewards">
+          <div class="score-row">
+            <span class="score-label">Moral Score</span>
+            <strong id="pointsTotal">0</strong>
+          </div>
+          <div class="score-row">
+            <span class="score-label">Level</span>
+            <strong id="levelName">Desk Cadet</strong>
+          </div>
+          <div class="score-row">
+            <span class="score-label">Streak</span>
+            <strong id="streakCount">0 days</strong>
+          </div>
+        </section>
+
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h2>The Case Board</h2>
+          </div>
+          <div class="date-chip" id="todayLabel"></div>
+        </header>
+
+        <section class="stats-grid" aria-label="Task counts">
+          <button class="stat-block stat-overdue" type="button" data-stat-view="overdue" aria-label="Show critical cases">
+            <span>Unsolved</span>
+            <strong id="overdueCount">0</strong>
+          </button>
+          <button class="stat-block stat-due" type="button" data-stat-view="soon" aria-label="Show cases due soon">
+            <span>Due Soon</span>
+            <strong id="dueCount">0</strong>
+          </button>
+          <button class="stat-block stat-done" type="button" data-stat-view="done" aria-label="Show closed cases">
+            <span>Closed</span>
+            <strong id="doneCount">0</strong>
+          </button>
+          <button class="stat-block stat-points" type="button" data-stat-view="accounting" aria-label="Show moral points accounting">
+            <span>Moral Value</span>
+            <strong id="moralPointsEarned">0</strong>
+          </button>
+        </section>
+
+        <section class="control-band" aria-label="Task controls">
+          <form class="task-form" id="taskForm">
+            <div class="field field-title">
+              <label for="taskTitle">Case</label>
+              <input id="taskTitle" name="title" type="text" placeholder="Interrogate dishwasher, math packet, piano lesson..." maxlength="80" required>
+            </div>
+            <div class="field">
+              <label for="taskType">Type</label>
+              <select id="taskType" name="type">
+                <option value="chore">Domestic</option>
+                <option value="responsibility">Strength</option>
+                <option value="engagement">Appointment</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="taskDue">Due</label>
+              <div class="date-entry">
+                <input id="taskDue" name="due" type="date" aria-label="Choose due date">
+                <button class="date-clear" id="clearDueDate" type="button">No Date</button>
+              </div>
+            </div>
+            <div class="field points-field">
+              <label for="taskPoints">Moral Value</label>
+              <input id="taskPoints" name="points" type="number" min="5" max="5" step="5" value="5" readonly>
+            </div>
+            <button class="primary-action" type="submit" aria-label="Add task">
+              <span aria-hidden="true">+</span>
+              Pin Case
+            </button>
+          </form>
+        </section>
+
+        <section class="task-list-section" aria-label="Tasks">
+          <div class="section-heading">
+            <h2 id="listTitle">Open Cases</h2>
+          </div>
+          <div class="task-list" id="taskList"></div>
+          <div class="empty-state" id="emptyState" hidden>
+            <strong>No cases here.</strong>
+            <span>The desk has nothing to judge. Suspicious, but fine.</span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
