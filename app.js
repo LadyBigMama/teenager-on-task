@@ -1,5 +1,7 @@
 const STORAGE_KEY = "reed-desk-tasks-v1";
 const MORAL_VALUE = 5;
+const DISHWASHER_VALUE = 2;
+const DISHWASHER_DAILY_TARGET = 3;
 const PASSWORD_KEY = "reed-desk-cancel-password-v1";
 const LEGACY_STORAGE_KEY = "rat-detective-tasks-v2";
 const LEGACY_PASSWORD_KEY = "rat-detective-cancel-password-v1";
@@ -109,8 +111,10 @@ function init() {
     day: "numeric"
   }).format(today);
   setNoDateMode(false, toDateInput(today));
+  syncPointPreview();
 
   els.form.addEventListener("submit", addTask);
+  els.title.addEventListener("input", syncPointPreview);
   els.clearDueDate.addEventListener("click", () => {
     setNoDateMode(!isNoDateMode());
   });
@@ -152,14 +156,17 @@ function loadTasks() {
 
 function normalizeTask(task) {
   const today = toDateInput(new Date());
-  const due = task.due || "";
-  const repeatsDaily = Boolean(due && (task.repeatsDaily || due === today));
+  const settings = getTaskSettings(task.title);
+  const activeDishwasher = settings.dailyTarget > 1 && !task.completedAt && !task.cancelledAt;
+  const due = task.due || (activeDishwasher ? today : "");
+  const repeatsDaily = Boolean(due && (task.repeatsDaily || due === today || settings.dailyTarget > 1));
   return {
     ...task,
     due,
-    points: MORAL_VALUE,
+    points: settings.points,
     repeatsDaily,
     recurringGroupId: repeatsDaily ? task.recurringGroupId || task.id : task.recurringGroupId || null,
+    dailyTarget: repeatsDaily ? settings.dailyTarget : 1,
     pendingAt: task.pendingAt || null,
     completedAt: task.completedAt || null,
     rejectedAt: task.rejectedAt || null,
@@ -168,7 +175,7 @@ function normalizeTask(task) {
 }
 
 function refreshDailyTasks(allTasks) {
-  const today = startOfDay(new Date());
+  const todayString = toDateInput(new Date());
   const refreshed = allTasks.map(normalizeTask);
   const groups = new Map();
 
@@ -183,14 +190,11 @@ function refreshDailyTasks(allTasks) {
   });
 
   groups.forEach(groupTasks => {
-    const hasOpenCurrentOrFuture = groupTasks.some(task => {
-      return !task.completedAt && !task.cancelledAt && parseDate(task.due) >= today;
-    });
-    if (!hasOpenCurrentOrFuture) {
-      const source = [...groupTasks].sort((a, b) => parseDate(b.due) - parseDate(a.due))[0];
-      const sourceDue = parseDate(source.due);
-      const nextDue = source.completedAt && sourceDue >= today ? addDays(sourceDue, 1) : today;
-      refreshed.push(createDailyRepeat(source, nextDue));
+    const source = [...groupTasks].sort((a, b) => parseDate(b.due) - parseDate(a.due))[0];
+    const dailyTarget = getDailyTarget(source);
+    const todayCount = groupTasks.filter(task => task.due === todayString).length;
+    for (let count = todayCount; count < dailyTarget; count += 1) {
+      refreshed.push(createDailyRepeat(source, startOfDay(new Date())));
     }
   });
 
@@ -208,17 +212,20 @@ function addTask(event) {
     return;
   }
 
-  const dueValue = isNoDateMode() ? "" : els.due.value;
   const todayValue = toDateInput(new Date());
+  const settings = getTaskSettings(title);
+  const selectedDueValue = isNoDateMode() ? "" : els.due.value;
+  const dueValue = settings.dailyTarget > 1 ? selectedDueValue || todayValue : selectedDueValue;
 
   tasks.push({
     id: crypto.randomUUID(),
     title,
     type: els.type.value,
     due: dueValue || "",
-    points: MORAL_VALUE,
-    repeatsDaily: Boolean(dueValue && dueValue === todayValue),
+    points: settings.points,
+    repeatsDaily: Boolean(dueValue && (dueValue === todayValue || settings.dailyTarget > 1)),
     recurringGroupId: dueValue && dueValue === todayValue ? crypto.randomUUID() : null,
+    dailyTarget: settings.dailyTarget,
     pendingAt: null,
     completedAt: null,
     rejectedAt: null,
@@ -228,10 +235,28 @@ function addTask(event) {
 
   els.form.reset();
   setNoDateMode(!dueValue, dueValue ? todayValue : "");
-  els.points.value = MORAL_VALUE;
+  tasks = refreshDailyTasks(tasks);
+  syncPointPreview();
   saveTasks();
   render(randomFrom(QUIPS.add));
   showToast("Case pinned. The desk pretends this was its idea.");
+}
+
+function syncPointPreview() {
+  els.points.value = getTaskSettings(els.title.value).points;
+}
+
+function getTaskSettings(title) {
+  if (/dish\s*washer/i.test(title || "")) {
+    return {
+      points: DISHWASHER_VALUE,
+      dailyTarget: DISHWASHER_DAILY_TARGET
+    };
+  }
+  return {
+    points: MORAL_VALUE,
+    dailyTarget: 1
+  };
 }
 
 function isNoDateMode() {
@@ -369,33 +394,40 @@ function ensureNextDailyRepeat(task) {
   const nextDue = addDays(dueDate, 1);
   const nextDueString = toDateInput(nextDue);
   const groupId = task.recurringGroupId || task.id;
-  const alreadyExists = tasks.some(item => {
-    return item.recurringGroupId === groupId && item.due === nextDueString && !item.completedAt && !item.cancelledAt;
-  });
+  const nextDueCount = tasks.filter(item => {
+    return item.recurringGroupId === groupId && item.due === nextDueString && !item.cancelledAt;
+  }).length;
 
   task.repeatsDaily = true;
   task.recurringGroupId = groupId;
+  task.dailyTarget = getDailyTarget(task);
 
-  if (!alreadyExists) {
+  if (nextDueCount < getDailyTarget(task)) {
     tasks.push(createDailyRepeat(task, nextDue));
   }
 }
 
 function createDailyRepeat(source, dueDate) {
+  const settings = getTaskSettings(source.title);
   return {
     id: crypto.randomUUID(),
     title: source.title,
     type: source.type,
     due: toDateInput(dueDate),
-    points: MORAL_VALUE,
+    points: settings.points,
     repeatsDaily: true,
     recurringGroupId: source.recurringGroupId || source.id,
+    dailyTarget: settings.dailyTarget,
     pendingAt: null,
     completedAt: null,
     rejectedAt: null,
     cancelledAt: null,
     createdAt: new Date().toISOString()
   };
+}
+
+function getDailyTarget(task) {
+  return Math.max(1, Number(task.dailyTarget) || getTaskSettings(task.title).dailyTarget);
 }
 
 function verifyParentPassword() {
@@ -656,7 +688,7 @@ function renderTask(task) {
     makeMeta(`-${task.points * 2} if ignored`)
   );
   if (task.repeatsDaily) {
-    meta.append(makeMeta("Repeats daily"));
+    meta.append(makeMeta(getDailyTarget(task) > 1 ? `${getDailyTarget(task)}x daily` : "Repeats daily"));
   }
   if (task.pendingAt) {
     meta.append(makeMeta(`Filed ${formatDateTime(task.pendingAt)}`));
