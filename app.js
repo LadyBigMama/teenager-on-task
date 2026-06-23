@@ -876,10 +876,10 @@ function renderAccounting(state) {
   summary.append(
     renderLedgerMetric("At Stake", formatScore(state.openStake)),
     renderLedgerMetric("Pending Review", formatScore(state.pendingPoints)),
-    renderLedgerMetric("Approved Earned", formatScore(state.earnedPoints), "positive"),
-    renderLedgerMetric("Overdue Penalty", `-${state.penaltyPoints}`),
-    renderLedgerMetric("Week Net", formatScore(state.weekly.net), state.weekly.net < 0 ? "negative" : "positive"),
-    renderLedgerMetric("Net Moral Score", formatScore(state.points), state.points < 0 ? "negative" : "positive")
+    renderLedgerMetric("This Week Earned", formatScore(state.earnedPoints), "positive"),
+    renderLedgerMetric("This Week Penalty", formatScore(-state.penaltyPoints), state.penaltyPoints ? "negative" : ""),
+    renderLedgerMetric("Carryover", formatScore(state.moralCarryover), state.moralCarryover < 0 ? "negative" : ""),
+    renderLedgerMetric("Moral Value", formatScore(state.points), state.points < 0 ? "negative" : "positive")
   );
 
   const weekly = renderWeeklyReckoning(state.weekly);
@@ -954,9 +954,10 @@ function renderWeeklyReckoning(weekly) {
   metrics.append(
     renderLedgerMetric("Approved", String(weekly.approvedCount), "positive"),
     renderLedgerMetric("Missed", String(weekly.missedCount), weekly.missedCount ? "negative" : ""),
-    renderLedgerMetric("Cancelled", String(weekly.cancelledCount)),
     renderLedgerMetric("Pending", String(weekly.pendingCount)),
-    renderLedgerMetric("Week Net", formatScore(weekly.net), weekly.net < 0 ? "negative" : "positive")
+    renderLedgerMetric("Carryover", formatScore(weekly.carryover), weekly.carryover < 0 ? "negative" : ""),
+    renderLedgerMetric("Week Net", formatScore(weekly.net), weekly.net < 0 ? "negative" : "positive"),
+    renderLedgerMetric("Moral Value", formatScore(weekly.score), weekly.score < 0 ? "negative" : "positive")
   );
 
   reckoning.append(heading, metrics);
@@ -1152,13 +1153,14 @@ function getState() {
     const days = getTaskStatus(task).daysUntil;
     return Number.isFinite(days) && days >= 0 && days <= 2;
   });
-  const earnedPoints = completed.reduce((sum, task) => sum + task.points, 0);
-  const penaltyPoints = overdue.reduce((sum, task) => sum + task.points * 2, 0);
+  const moralLedger = getMoralLedger(tasks);
+  const earnedPoints = moralLedger.currentWeek.earned;
+  const penaltyPoints = moralLedger.currentWeek.penalty;
   const openStake = active.reduce((sum, task) => sum + task.points, 0);
   const pendingPoints = pending.reduce((sum, task) => sum + task.points, 0);
-  const points = earnedPoints - penaltyPoints;
+  const points = moralLedger.currentWeek.score;
   const streak = calculateStreak(completed);
-  const weekly = getWeeklyReckoning(tasks);
+  const weekly = moralLedger.currentWeek;
   const slackScore = clamp(overdue.length * 26 + actionable.length * 4 + pending.length * 2, 0, 100);
 
   return {
@@ -1174,6 +1176,8 @@ function getState() {
     penaltyPoints,
     pendingPoints,
     openStake,
+    moralCarryover: moralLedger.carryover,
+    moralLedger,
     weekly,
     streak,
     slackScore
@@ -1223,20 +1227,61 @@ function getTaskDaysUntil(task) {
   return daysBetween(startOfDay(new Date()), parseDate(task.due));
 }
 
-function getWeeklyReckoning(allTasks) {
+function getMoralLedger(allTasks) {
   const today = startOfDay(new Date());
   const weekStart = startOfWeek(today);
   const weekEnd = addDays(weekStart, 6);
+  const firstWeekStart = getFirstLedgerWeekStart(allTasks, weekStart);
+  const closedWeeks = [];
+  let carryover = 0;
+  let cursor = firstWeekStart;
+
+  while (cursor < weekStart) {
+    const closedWeekStart = startOfDay(cursor);
+    const closedWeekEnd = addDays(closedWeekStart, 6);
+    const week = getWeeklyReckoning(allTasks, closedWeekStart, closedWeekEnd, closedWeekEnd, true);
+    const endingScore = carryover + week.net;
+    const carriedForward = endingScore < 0 ? endingScore : 0;
+    closedWeeks.push({
+      ...week,
+      carryover,
+      score: endingScore,
+      carriedForward,
+      resetAmount: endingScore > 0 ? endingScore : 0
+    });
+    carryover = carriedForward;
+    cursor = addDays(closedWeekStart, 7);
+  }
+
+  const currentWeek = getWeeklyReckoning(allTasks, weekStart, weekEnd, addDays(today, -1), false);
+  currentWeek.carryover = carryover;
+  currentWeek.score = carryover + currentWeek.net;
+  currentWeek.carriedForward = currentWeek.score < 0 ? currentWeek.score : 0;
+  currentWeek.resetAmount = currentWeek.score > 0 ? currentWeek.score : 0;
+
+  return {
+    carryover,
+    closedWeeks,
+    currentWeek
+  };
+}
+
+function getFirstLedgerWeekStart(allTasks, fallbackWeekStart) {
+  const dates = allTasks
+    .flatMap(task => [task.due ? parseDate(task.due) : null, task.completedAt ? new Date(task.completedAt) : null])
+    .filter(date => date instanceof Date && !Number.isNaN(date.getTime()));
+  if (!dates.length) {
+    return fallbackWeekStart;
+  }
+  const firstDate = dates.reduce((earliest, date) => (date < earliest ? date : earliest), fallbackWeekStart);
+  return startOfWeek(firstDate);
+}
+
+function getWeeklyReckoning(allTasks, weekStart, weekEnd, penaltyCutoff, isClosedWeek) {
   const approved = allTasks.filter(task => isWithinWeek(task.completedAt, weekStart, weekEnd) && !task.cancelledAt);
   const cancelled = allTasks.filter(task => isWithinWeek(task.cancelledAt, weekStart, weekEnd));
   const pending = allTasks.filter(task => task.pendingAt && !task.completedAt && !task.cancelledAt);
-  const missed = allTasks.filter(task => {
-    if (task.completedAt || task.cancelledAt || task.pendingAt || !task.due) {
-      return false;
-    }
-    const dueDate = parseDate(task.due);
-    return dueDate >= weekStart && dueDate <= today && getTaskStatus(task).isOverdue;
-  });
+  const missed = allTasks.filter(task => isMissedInWeek(task, weekStart, penaltyCutoff, isClosedWeek));
   const earned = approved.reduce((sum, task) => sum + task.points, 0);
   const penalty = missed.reduce((sum, task) => sum + task.points * 2, 0);
 
@@ -1250,6 +1295,24 @@ function getWeeklyReckoning(allTasks) {
     penalty,
     net: earned - penalty
   };
+}
+
+function isMissedInWeek(task, weekStart, penaltyCutoff, isClosedWeek) {
+  if (!task.due || task.cancelledAt) {
+    return false;
+  }
+  const dueDate = parseDate(task.due);
+  if (!dueDate || dueDate < weekStart || dueDate > penaltyCutoff) {
+    return false;
+  }
+  if (!isClosedWeek) {
+    return !task.completedAt && !task.pendingAt;
+  }
+  return !isDoneBy(task.completedAt, penaltyCutoff) && !isDoneBy(task.pendingAt, penaltyCutoff);
+}
+
+function isDoneBy(value, date) {
+  return Boolean(value && startOfDay(new Date(value)) <= date);
 }
 
 function renderThoughtLog(state) {
