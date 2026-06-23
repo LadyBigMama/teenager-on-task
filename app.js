@@ -6,6 +6,7 @@ const PASSWORD_KEY = "reed-desk-cancel-password-v1";
 const LEGACY_STORAGE_KEY = "rat-detective-tasks-v2";
 const LEGACY_PASSWORD_KEY = "rat-detective-cancel-password-v1";
 const PENDING_REPAIR_KEY = "reed-desk-pending-review-repair-2026-06-23";
+const CLOUD_TABLE = "teen_task_state";
 const FILTER_LABELS = {
   active: "Unsolved Cases",
   overdue: "Critical Cases",
@@ -92,16 +93,21 @@ const els = {
   dueCount: document.querySelector("#dueCount"),
   doneCount: document.querySelector("#doneCount"),
   moralPointsEarned: document.querySelector("#moralPointsEarned"),
+  cloudStatus: document.querySelector("#cloudStatus"),
   toast: document.querySelector("#toast")
 };
 
+const cloudConfig = getCloudConfig();
 let tasks = refreshDailyTasks(clearPendingReviewOnce(loadTasks()));
 let activeFilter = "today";
 let lastQuote = "";
 let toastTimer = 0;
+let cloudReady = false;
+let cloudSaveTimer = 0;
 
-saveTasks();
 init();
+saveTasks({ syncCloud: false });
+connectCloudStore();
 
 function init() {
   const today = new Date();
@@ -137,6 +143,144 @@ function init() {
 function setActiveView(view) {
   activeFilter = view;
   render();
+}
+
+function getCloudConfig() {
+  const config = window.SUPABASE_CONFIG || {};
+  const url = String(config.url || "").replace(/\/$/, "");
+  const anonKey = String(config.anonKey || "");
+  const householdId = String(config.householdId || "");
+  const table = String(config.table || CLOUD_TABLE);
+  const enabled = Boolean(
+    url &&
+    anonKey &&
+    householdId &&
+    !url.includes("YOUR_") &&
+    !anonKey.includes("YOUR_") &&
+    !householdId.includes("YOUR_")
+  );
+
+  return {
+    url,
+    anonKey,
+    householdId,
+    table,
+    enabled
+  };
+}
+
+async function connectCloudStore() {
+  if (!cloudConfig.enabled) {
+    setCloudStatus("Local");
+    return;
+  }
+
+  setCloudStatus("Sync...");
+  try {
+    const cloudPayload = await loadCloudPayload();
+    cloudReady = true;
+
+    if (cloudPayload) {
+      applyCloudPayload(cloudPayload);
+      tasks = refreshDailyTasks(clearPendingReviewOnce(tasks));
+      saveTasks({ syncCloud: false });
+      render("INTERCOM [Easy: Success] - Cloud archive online. The files have learned to travel.");
+      queueCloudSave();
+    } else {
+      await saveCloudPayload();
+    }
+
+    setCloudStatus("Cloud");
+  } catch (error) {
+    console.error(error);
+    cloudReady = false;
+    setCloudStatus("Local");
+    showToast("Cloud sync failed. Local mode active.");
+  }
+}
+
+async function loadCloudPayload() {
+  const response = await fetch(`${cloudConfig.url}/rest/v1/${cloudConfig.table}?household_id=eq.${encodeURIComponent(cloudConfig.householdId)}&select=payload`, {
+    headers: getCloudHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(`Cloud load failed: ${await response.text()}`);
+  }
+
+  const rows = await response.json();
+  return rows[0]?.payload || null;
+}
+
+function applyCloudPayload(payload) {
+  if (Array.isArray(payload.tasks)) {
+    tasks = payload.tasks;
+  }
+  if (payload.passwordRecord?.salt && payload.passwordRecord?.hash) {
+    localStorage.setItem(PASSWORD_KEY, JSON.stringify(payload.passwordRecord));
+  }
+}
+
+function queueCloudSave() {
+  if (!cloudConfig.enabled || !cloudReady) {
+    return;
+  }
+  window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(() => {
+    saveCloudPayload().catch(error => {
+      console.error(error);
+      setCloudStatus("Local");
+      showToast("Cloud save failed. Local copy kept.");
+    });
+  }, 350);
+}
+
+async function saveCloudPayload() {
+  if (!cloudConfig.enabled) {
+    return;
+  }
+
+  setCloudStatus("Sync...");
+  const response = await fetch(`${cloudConfig.url}/rest/v1/${cloudConfig.table}?on_conflict=household_id`, {
+    method: "POST",
+    headers: {
+      ...getCloudHeaders(),
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify({
+      household_id: cloudConfig.householdId,
+      payload: getCloudPayload(),
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Cloud save failed: ${await response.text()}`);
+  }
+
+  setCloudStatus("Cloud");
+}
+
+function getCloudPayload() {
+  return {
+    tasks,
+    passwordRecord: getCancelPasswordRecord(),
+    savedAt: new Date().toISOString()
+  };
+}
+
+function getCloudHeaders() {
+  return {
+    apikey: cloudConfig.anonKey,
+    Authorization: `Bearer ${cloudConfig.anonKey}`
+  };
+}
+
+function setCloudStatus(status) {
+  if (els.cloudStatus) {
+    els.cloudStatus.textContent = status;
+  }
 }
 
 function loadTasks() {
@@ -217,8 +361,11 @@ function refreshDailyTasks(allTasks) {
   return refreshed;
 }
 
-function saveTasks() {
+function saveTasks(options = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  if (options.syncCloud !== false) {
+    queueCloudSave();
+  }
 }
 
 function addTask(event) {
@@ -475,6 +622,7 @@ function setCancelPassword() {
     salt,
     hash: hashPassword(password, salt)
   }));
+  queueCloudSave();
   showToast("Cancellation password set.");
   return true;
 }
