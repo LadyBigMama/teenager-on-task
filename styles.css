@@ -463,9 +463,10 @@ input:disabled {
   gap: 14px;
 }
 
-.ledger-summary {
+.ledger-summary,
+.weekly-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -532,6 +533,43 @@ input:disabled {
   border-left-color: var(--coral);
 }
 
+.ledger-row.is-pending {
+  border-left-color: var(--yellow);
+}
+
+.ledger-row.is-cancelled {
+  border-left-color: var(--muted);
+  opacity: 0.7;
+}
+
+.weekly-reckoning {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.72);
+}
+
+.weekly-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.weekly-heading h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.weekly-heading span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .ledger-title {
   display: grid;
   gap: 5px;
@@ -576,6 +614,14 @@ input:disabled {
   border-left-color: var(--coral);
 }
 
+.task-card.is-pending {
+  border-left-color: var(--yellow);
+}
+
+.task-card.is-rejected {
+  border-left-color: var(--blue);
+}
+
 .task-card.is-done {
   border-left-color: var(--green);
   opacity: 0.78;
@@ -597,6 +643,16 @@ input:disabled {
   background: var(--green);
   border-color: var(--green);
   color: #fff;
+}
+
+.task-card.is-pending .complete-button {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: #221d12;
+}
+
+.complete-button:disabled {
+  cursor: default;
 }
 
 .task-main {
@@ -651,6 +707,16 @@ input:disabled {
   color: #236a40;
 }
 
+.pill.pending {
+  background: rgba(247, 201, 72, 0.26);
+  color: #745300;
+}
+
+.pill.cancelled {
+  background: rgba(95, 104, 114, 0.18);
+  color: #4c545c;
+}
+
 .pill.today {
   background: rgba(247, 201, 72, 0.23);
   color: #7f5b00;
@@ -673,6 +739,18 @@ input:disabled {
 
 .task-action.delete {
   color: #9b392e;
+}
+
+.task-action.approve {
+  color: #236a40;
+}
+
+.task-action.reject {
+  color: #9b392e;
+}
+
+.task-action.reopen {
+  color: var(--blue);
 }
 
 .empty-state {
@@ -810,6 +888,7 @@ input:disabled {
   }
 
   .ledger-summary,
+  .weekly-metrics,
   .ledger-row {
     grid-template-columns: 1fr;
   }

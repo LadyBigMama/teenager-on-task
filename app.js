@@ -4,11 +4,11 @@ const PASSWORD_KEY = "reed-desk-cancel-password-v1";
 const LEGACY_STORAGE_KEY = "rat-detective-tasks-v2";
 const LEGACY_PASSWORD_KEY = "rat-detective-cancel-password-v1";
 const FILTER_LABELS = {
-  active: "Open Cases",
+  active: "Unsolved Cases",
   overdue: "Critical Cases",
   soon: "Due Soon",
-  today: "Due Today",
-  done: "Closed Cases",
+  today: "Today's Docket",
+  done: "Approved Cases",
   all: "All Cases",
   accounting: "Moral Accounting"
 };
@@ -48,7 +48,7 @@ const QUIPS = {
     "MORAL LEDGER [Catastrophic: Failure] - Even the laundry pile is embarrassed for you."
   ],
   win: [
-    "MORAL LEDGER [Easy: Success] - Case closed. Respect issued in small, reluctant coins.",
+    "MORAL LEDGER [Easy: Success] - Case approved. Respect issued in small, reluctant coins.",
     "DOMESTIC FORENSICS [Medium: Success] - Evidence removed. The room exhales.",
     "EXECUTIVE STATIC [High: Success] - A case has fallen. The self survives."
   ],
@@ -94,7 +94,7 @@ const els = {
 };
 
 let tasks = refreshDailyTasks(loadTasks());
-let activeFilter = "active";
+let activeFilter = "today";
 let lastQuote = "";
 let toastTimer = 0;
 
@@ -159,7 +159,11 @@ function normalizeTask(task) {
     due,
     points: MORAL_VALUE,
     repeatsDaily,
-    recurringGroupId: repeatsDaily ? task.recurringGroupId || task.id : task.recurringGroupId || null
+    recurringGroupId: repeatsDaily ? task.recurringGroupId || task.id : task.recurringGroupId || null,
+    pendingAt: task.pendingAt || null,
+    completedAt: task.completedAt || null,
+    rejectedAt: task.rejectedAt || null,
+    cancelledAt: task.cancelledAt || null
   };
 }
 
@@ -180,7 +184,7 @@ function refreshDailyTasks(allTasks) {
 
   groups.forEach(groupTasks => {
     const hasOpenCurrentOrFuture = groupTasks.some(task => {
-      return !task.completedAt && parseDate(task.due) >= today;
+      return !task.completedAt && !task.cancelledAt && parseDate(task.due) >= today;
     });
     if (!hasOpenCurrentOrFuture) {
       const source = [...groupTasks].sort((a, b) => parseDate(b.due) - parseDate(a.due))[0];
@@ -215,7 +219,10 @@ function addTask(event) {
     points: MORAL_VALUE,
     repeatsDaily: Boolean(dueValue && dueValue === todayValue),
     recurringGroupId: dueValue && dueValue === todayValue ? crypto.randomUUID() : null,
+    pendingAt: null,
     completedAt: null,
+    rejectedAt: null,
+    cancelledAt: null,
     createdAt: new Date().toISOString()
   });
 
@@ -251,22 +258,29 @@ function handleTaskAction(event) {
     return;
   }
 
-  if (button.dataset.action === "toggle") {
-    task.completedAt = task.completedAt ? null : new Date().toISOString();
-    if (task.completedAt && task.repeatsDaily) {
-      ensureNextDailyRepeat(task);
-    }
-    saveTasks();
-    render(task.completedAt ? randomFrom(QUIPS.win) : "RED THREAD [Easy: Failure] - Reopened. The case crawls back onto the board.");
-    if (task.completedAt) {
-      showToast(`+${task.points} moral points. The room becomes less cursed.`);
-      burstConfetti();
-    }
+  if (button.dataset.action === "file") {
+    fileTaskForReview(task);
+    return;
+  }
+
+  if (button.dataset.action === "approve") {
+    approveTask(task);
+    return;
+  }
+
+  if (button.dataset.action === "reject") {
+    rejectTask(task);
+    return;
+  }
+
+  if (button.dataset.action === "reopen") {
+    reopenTask(task);
     return;
   }
 
   if (button.dataset.action === "snooze") {
     task.due = toDateInput(addDays(startOfDay(new Date()), 1));
+    task.rejectedAt = null;
     saveTasks();
     render("EXECUTIVE STATIC [Medium: Compromise] - Snoozed to tomorrow. A legal maneuver, technically.");
     showToast("Moved to tomorrow.");
@@ -278,10 +292,70 @@ function handleTaskAction(event) {
   }
 }
 
+function fileTaskForReview(task) {
+  if (task.completedAt || task.cancelledAt) {
+    return;
+  }
+  task.pendingAt = new Date().toISOString();
+  task.rejectedAt = null;
+  saveTasks();
+  render("AUTHORITY CHECK [Trivial: Pending] - Filed, not proven. The clipboard narrows its eyes.");
+  showToast("Filed for parent review. No moral points yet.");
+}
+
+function approveTask(task) {
+  if (!verifyParentPassword()) {
+    render("AUTHORITY CHECK [Medium: Failure] - Approval denied. The stamp remains tragically dry.");
+    showToast("Parent password rejected.");
+    return;
+  }
+
+  task.completedAt = new Date().toISOString();
+  task.pendingAt = null;
+  task.rejectedAt = null;
+  if (task.repeatsDaily) {
+    ensureNextDailyRepeat(task);
+  }
+  saveTasks();
+  render(randomFrom(QUIPS.win));
+  showToast(`+${task.points} moral points approved. The ledger stops glaring.`);
+  burstConfetti();
+}
+
+function rejectTask(task) {
+  if (!verifyParentPassword()) {
+    render("AUTHORITY CHECK [Medium: Failure] - Rejection denied. The stamp sulks in its drawer.");
+    showToast("Parent password rejected.");
+    return;
+  }
+
+  task.completedAt = null;
+  task.pendingAt = null;
+  task.rejectedAt = new Date().toISOString();
+  saveTasks();
+  render("AUTHORITY CHECK [Hard: Success] - Evidence rejected. The case crawls back onto the board wearing shame.");
+  showToast("Returned to active duty. The ledger is unimpressed.");
+}
+
+function reopenTask(task) {
+  if (!verifyParentPassword()) {
+    render("AUTHORITY CHECK [Medium: Failure] - Reopen denied. The past refuses to be edited.");
+    showToast("Parent password rejected.");
+    return;
+  }
+
+  task.completedAt = null;
+  task.pendingAt = null;
+  task.rejectedAt = new Date().toISOString();
+  saveTasks();
+  render("RED THREAD [Easy: Failure] - Reopened. The case crawls back onto the board.");
+  showToast("Approved case reopened.");
+}
+
 function cancelTask(task) {
-  if (!verifyCancelPassword()) {
+  if (!verifyParentPassword()) {
     render("AUTHORITY CHECK [Medium: Failure] - Cancellation denied. The paperwork hisses.");
-    showToast("Cancellation password rejected.");
+    showToast("Parent password rejected.");
     return;
   }
 
@@ -289,7 +363,10 @@ function cancelTask(task) {
     ensureNextDailyRepeat(task);
   }
 
-  tasks = tasks.filter(item => item.id !== task.id);
+  task.cancelledAt = new Date().toISOString();
+  task.pendingAt = null;
+  task.completedAt = null;
+  task.rejectedAt = null;
   saveTasks();
   render("AUTHORITY CHECK [Medium: Success] - Case cancelled. The form receives a theatrical stamp of disappointment.");
   showToast("Case cancelled.");
@@ -302,7 +379,7 @@ function ensureNextDailyRepeat(task) {
   const nextDueString = toDateInput(nextDue);
   const groupId = task.recurringGroupId || task.id;
   const alreadyExists = tasks.some(item => {
-    return item.recurringGroupId === groupId && item.due === nextDueString && !item.completedAt;
+    return item.recurringGroupId === groupId && item.due === nextDueString && !item.completedAt && !item.cancelledAt;
   });
 
   task.repeatsDaily = true;
@@ -322,18 +399,21 @@ function createDailyRepeat(source, dueDate) {
     points: MORAL_VALUE,
     repeatsDaily: true,
     recurringGroupId: source.recurringGroupId || source.id,
+    pendingAt: null,
     completedAt: null,
+    rejectedAt: null,
+    cancelledAt: null,
     createdAt: new Date().toISOString()
   };
 }
 
-function verifyCancelPassword() {
+function verifyParentPassword() {
   let record = getCancelPasswordRecord();
   if (!record && !setCancelPassword()) {
     return false;
   }
   record = getCancelPasswordRecord();
-  const password = window.prompt("Parent cancellation password:");
+  const password = window.prompt("Parent authorization password:");
   if (!password) {
     return false;
   }
@@ -341,7 +421,7 @@ function verifyCancelPassword() {
 }
 
 function setCancelPassword() {
-  const password = window.prompt("Set parent cancellation password:");
+  const password = window.prompt("Set parent authorization password:");
   if (!password || password.length < 4) {
     showToast("Use at least 4 characters for the cancellation password.");
     return false;
@@ -400,7 +480,8 @@ function render(forcedQuote) {
     els.emptyState.hidden = filtered.length > 0;
   }
 
-  els.overdueCount.textContent = state.overdueCount;
+  els.overdueCount.textContent = state.openCount;
+  els.overdueCount.closest(".stat-block").setAttribute("aria-label", `Show ${state.openCount} unsolved cases`);
   els.dueCount.textContent = state.dueSoonCount;
   els.dueCount.closest(".stat-block").setAttribute("aria-label", `Show ${state.dueSoonCount} cases due soon`);
   els.doneCount.textContent = state.completedCount;
@@ -425,16 +506,19 @@ function renderAccounting(state) {
   summary.className = "ledger-summary";
   summary.append(
     renderLedgerMetric("At Stake", formatScore(state.openStake)),
-    renderLedgerMetric("Actually Earned", formatScore(state.earnedPoints)),
+    renderLedgerMetric("Pending Review", formatScore(state.pendingPoints)),
+    renderLedgerMetric("Approved Earned", formatScore(state.earnedPoints), "positive"),
     renderLedgerMetric("Overdue Penalty", `-${state.penaltyPoints}`),
+    renderLedgerMetric("Week Net", formatScore(state.weekly.net), state.weekly.net < 0 ? "negative" : "positive"),
     renderLedgerMetric("Net Moral Score", formatScore(state.points), state.points < 0 ? "negative" : "positive")
   );
 
+  const weekly = renderWeeklyReckoning(state.weekly);
   const rows = document.createElement("div");
   rows.className = "ledger-rows";
   [...tasks].sort(sortTasks).forEach(task => rows.appendChild(renderLedgerRow(task)));
 
-  ledger.append(summary, rows);
+  ledger.append(summary, weekly, rows);
   return ledger;
 }
 
@@ -455,7 +539,13 @@ function renderLedgerMetric(label, value, tone = "") {
 function renderLedgerRow(task) {
   const status = getTaskStatus(task);
   const row = document.createElement("article");
-  row.className = `ledger-row ${status.isOverdue ? "is-penalty" : ""} ${task.completedAt ? "is-earned" : ""}`;
+  row.className = [
+    "ledger-row",
+    status.isOverdue ? "is-penalty" : "",
+    task.pendingAt ? "is-pending" : "",
+    task.completedAt ? "is-earned" : "",
+    task.cancelledAt ? "is-cancelled" : ""
+  ].filter(Boolean).join(" ");
 
   const title = document.createElement("div");
   title.className = "ledger-title";
@@ -464,18 +554,44 @@ function renderLedgerRow(task) {
   name.textContent = task.title;
 
   const due = document.createElement("span");
-  due.textContent = `${TYPE_LABELS[task.type] || task.type} · ${formatDueDate(task.due)}`;
+  due.textContent = `${TYPE_LABELS[task.type] || task.type} · ${status.label} · ${formatDueDate(task.due)}`;
 
   title.append(name, due);
 
-  const stake = renderLedgerAmount("At stake", formatScore(task.points));
+  const stake = renderLedgerAmount("Moral value", task.cancelledAt ? "0" : formatScore(task.points));
   const earned = task.completedAt ? renderLedgerAmount("Earned", formatScore(task.points), "positive") : renderLedgerAmount("Earned", "0");
-  const penalty = status.isOverdue ? renderLedgerAmount("Penalty", `-${task.points * 2}`, "negative") : renderLedgerAmount("Penalty", "0");
+  const penalty = status.isOverdue ? renderLedgerAmount("If ignored", `-${task.points * 2}`, "negative") : renderLedgerAmount("If ignored", task.completedAt || task.pendingAt || task.cancelledAt ? "0" : `-${task.points * 2}`);
   const net = task.completedAt ? task.points : status.isOverdue ? -task.points * 2 : 0;
   const result = renderLedgerAmount("Net", formatScore(net), net < 0 ? "negative" : net > 0 ? "positive" : "");
 
   row.append(title, stake, earned, penalty, result);
   return row;
+}
+
+function renderWeeklyReckoning(weekly) {
+  const reckoning = document.createElement("section");
+  reckoning.className = "weekly-reckoning";
+
+  const heading = document.createElement("div");
+  heading.className = "weekly-heading";
+  const title = document.createElement("h3");
+  title.textContent = "Weekly Reckoning";
+  const range = document.createElement("span");
+  range.textContent = weekly.range;
+  heading.append(title, range);
+
+  const metrics = document.createElement("div");
+  metrics.className = "weekly-metrics";
+  metrics.append(
+    renderLedgerMetric("Approved", String(weekly.approvedCount), "positive"),
+    renderLedgerMetric("Missed", String(weekly.missedCount), weekly.missedCount ? "negative" : ""),
+    renderLedgerMetric("Cancelled", String(weekly.cancelledCount)),
+    renderLedgerMetric("Pending", String(weekly.pendingCount)),
+    renderLedgerMetric("Week Net", formatScore(weekly.net), weekly.net < 0 ? "negative" : "positive")
+  );
+
+  reckoning.append(heading, metrics);
+  return reckoning;
 }
 
 function renderLedgerAmount(label, value, tone = "") {
@@ -495,15 +611,31 @@ function renderLedgerAmount(label, value, tone = "") {
 function renderTask(task) {
   const status = getTaskStatus(task);
   const card = document.createElement("article");
-  card.className = `task-card ${status.isOverdue ? "is-overdue" : ""} ${task.completedAt ? "is-done" : ""}`;
+  card.className = [
+    "task-card",
+    status.isOverdue ? "is-overdue" : "",
+    task.pendingAt ? "is-pending" : "",
+    task.completedAt ? "is-done" : "",
+    task.rejectedAt && !task.pendingAt && !task.completedAt ? "is-rejected" : ""
+  ].filter(Boolean).join(" ");
   card.dataset.id = task.id;
 
   const completeButton = document.createElement("button");
   completeButton.className = "complete-button";
   completeButton.type = "button";
-  completeButton.dataset.action = "toggle";
-  completeButton.setAttribute("aria-label", task.completedAt ? "Mark task active" : "Mark task complete");
-  completeButton.textContent = task.completedAt ? "✓" : "";
+  if (task.completedAt) {
+    completeButton.dataset.action = "reopen";
+    completeButton.setAttribute("aria-label", "Reopen approved task with parent password");
+    completeButton.textContent = "✓";
+  } else if (task.pendingAt) {
+    completeButton.disabled = true;
+    completeButton.setAttribute("aria-label", "Task filed for parent review");
+    completeButton.textContent = "?";
+  } else {
+    completeButton.dataset.action = "file";
+    completeButton.setAttribute("aria-label", "File task for parent review");
+    completeButton.textContent = "";
+  }
 
   const main = document.createElement("div");
   main.className = "task-main";
@@ -529,26 +661,46 @@ function renderTask(task) {
   meta.className = "task-meta";
   meta.append(
     makeMeta(formatDueDate(task.due)),
-    makeMeta(`${task.points} moral pts`)
+    makeMeta(`+${task.points} moral value`),
+    makeMeta(`-${task.points * 2} if ignored`)
   );
   if (task.repeatsDaily) {
     meta.append(makeMeta("Repeats daily"));
+  }
+  if (task.pendingAt) {
+    meta.append(makeMeta(`Filed ${formatDateTime(task.pendingAt)}`));
+  }
+  if (task.rejectedAt && !task.pendingAt && !task.completedAt) {
+    meta.append(makeMeta(`Rejected ${formatDateTime(task.rejectedAt)}`));
   }
   if (status.isOverdue) {
     meta.append(makeMeta(`Penalty -${task.points * 2}`));
   }
   if (task.completedAt) {
-    meta.append(makeMeta(`Closed ${formatDateTime(task.completedAt)}`));
+    meta.append(makeMeta(`Approved ${formatDateTime(task.completedAt)}`));
   }
 
   main.append(titleRow, meta);
 
   const actions = document.createElement("div");
   actions.className = "task-actions";
-  actions.append(
-    makeActionButton("snooze", "Snooze task to tomorrow", "⏱"),
-    makeActionButton("delete", "Cancel task with password", "×", "delete")
-  );
+  if (task.pendingAt) {
+    actions.append(
+      makeActionButton("approve", "Approve task with parent password", "✓", "approve"),
+      makeActionButton("reject", "Reject task with parent password", "!", "reject"),
+      makeActionButton("delete", "Cancel task with parent password", "×", "delete")
+    );
+  } else if (task.completedAt) {
+    actions.append(
+      makeActionButton("reopen", "Reopen task with parent password", "↺", "reopen"),
+      makeActionButton("delete", "Cancel task with parent password", "×", "delete")
+    );
+  } else {
+    actions.append(
+      makeActionButton("snooze", "Snooze task to tomorrow", "⏱"),
+      makeActionButton("delete", "Cancel task with parent password", "×", "delete")
+    );
+  }
 
   card.append(completeButton, main, actions);
   return card;
@@ -577,27 +729,33 @@ function getFilteredTasks(allTasks, filter) {
     .filter(task => {
       const status = getTaskStatus(task);
       if (filter === "active") {
-        return !task.completedAt;
+        return !task.completedAt && !task.cancelledAt;
       }
       if (filter === "overdue") {
         return status.isOverdue;
       }
       if (filter === "soon") {
-        return !task.completedAt && Number.isFinite(status.daysUntil) && status.daysUntil >= 0 && status.daysUntil <= 2;
+        return !task.completedAt && !task.cancelledAt && !task.pendingAt && Number.isFinite(status.daysUntil) && status.daysUntil >= 0 && status.daysUntil <= 2;
       }
       if (filter === "today") {
-        return !task.completedAt && status.daysUntil === 0;
+        return !task.completedAt && !task.cancelledAt && (status.isOverdue || status.daysUntil === 0 || !task.due || Boolean(task.pendingAt));
       }
       if (filter === "done") {
-        return Boolean(task.completedAt);
+        return Boolean(task.completedAt && !task.cancelledAt);
       }
-      return true;
+      return !task.cancelledAt;
     });
 }
 
 function sortTasks(a, b) {
+  if (Boolean(a.cancelledAt) !== Boolean(b.cancelledAt)) {
+    return a.cancelledAt ? 1 : -1;
+  }
   if (Boolean(a.completedAt) !== Boolean(b.completedAt)) {
     return a.completedAt ? 1 : -1;
+  }
+  if (Boolean(a.pendingAt) !== Boolean(b.pendingAt)) {
+    return a.pendingAt ? 1 : -1;
   }
   const aDate = parseDate(a.due);
   const bDate = parseDate(b.due);
@@ -614,44 +772,62 @@ function sortTasks(a, b) {
 }
 
 function getState() {
-  const incomplete = tasks.filter(task => !task.completedAt);
-  const completed = tasks.filter(task => task.completedAt);
-  const overdue = incomplete.filter(task => getTaskStatus(task).isOverdue);
-  const dueSoon = incomplete.filter(task => {
+  const active = tasks.filter(task => !task.completedAt && !task.cancelledAt);
+  const actionable = active.filter(task => !task.pendingAt);
+  const pending = active.filter(task => task.pendingAt);
+  const completed = tasks.filter(task => task.completedAt && !task.cancelledAt);
+  const cancelled = tasks.filter(task => task.cancelledAt);
+  const overdue = actionable.filter(task => getTaskStatus(task).isOverdue);
+  const dueSoon = actionable.filter(task => {
     const days = getTaskStatus(task).daysUntil;
     return Number.isFinite(days) && days >= 0 && days <= 2;
   });
   const earnedPoints = completed.reduce((sum, task) => sum + task.points, 0);
   const penaltyPoints = overdue.reduce((sum, task) => sum + task.points * 2, 0);
-  const openStake = incomplete.reduce((sum, task) => sum + task.points, 0);
+  const openStake = active.reduce((sum, task) => sum + task.points, 0);
+  const pendingPoints = pending.reduce((sum, task) => sum + task.points, 0);
   const points = earnedPoints - penaltyPoints;
   const streak = calculateStreak(completed);
-  const slackScore = clamp(overdue.length * 26 + incomplete.length * 4, 0, 100);
+  const weekly = getWeeklyReckoning(tasks);
+  const slackScore = clamp(overdue.length * 26 + actionable.length * 4 + pending.length * 2, 0, 100);
 
   return {
-    openCount: incomplete.length,
+    openCount: active.length,
+    actionableCount: actionable.length,
+    pendingCount: pending.length,
     completedCount: completed.length,
+    cancelledCount: cancelled.length,
     overdueCount: overdue.length,
     dueSoonCount: dueSoon.length,
     points,
     earnedPoints,
     penaltyPoints,
+    pendingPoints,
     openStake,
+    weekly,
     streak,
     slackScore
   };
 }
 
 function getTaskStatus(task) {
+  if (task.cancelledAt) {
+    return { key: "cancelled", label: "Cancelled", isOverdue: false, daysUntil: Infinity };
+  }
+
   if (task.completedAt) {
-    return { key: "done", label: "Closed", isOverdue: false, daysUntil: 0 };
+    return { key: "done", label: "Approved", isOverdue: false, daysUntil: 0 };
+  }
+
+  if (task.pendingAt) {
+    return { key: "pending", label: "Filed, not proven", isOverdue: false, daysUntil: getTaskDaysUntil(task) };
   }
 
   if (!task.due) {
     return { key: "open", label: "No due date", isOverdue: false, daysUntil: Infinity };
   }
 
-  const daysUntil = daysBetween(startOfDay(new Date()), parseDate(task.due));
+  const daysUntil = getTaskDaysUntil(task);
   if (daysUntil < 0) {
     const daysLate = Math.abs(daysUntil);
     return {
@@ -668,6 +844,42 @@ function getTaskStatus(task) {
     return { key: "soon", label: "Tomorrow", isOverdue: false, daysUntil };
   }
   return { key: "soon", label: `In ${daysUntil} days`, isOverdue: false, daysUntil };
+}
+
+function getTaskDaysUntil(task) {
+  if (!task.due) {
+    return Infinity;
+  }
+  return daysBetween(startOfDay(new Date()), parseDate(task.due));
+}
+
+function getWeeklyReckoning(allTasks) {
+  const today = startOfDay(new Date());
+  const weekStart = startOfWeek(today);
+  const weekEnd = addDays(weekStart, 6);
+  const approved = allTasks.filter(task => isWithinWeek(task.completedAt, weekStart, weekEnd) && !task.cancelledAt);
+  const cancelled = allTasks.filter(task => isWithinWeek(task.cancelledAt, weekStart, weekEnd));
+  const pending = allTasks.filter(task => task.pendingAt && !task.completedAt && !task.cancelledAt);
+  const missed = allTasks.filter(task => {
+    if (task.completedAt || task.cancelledAt || task.pendingAt || !task.due) {
+      return false;
+    }
+    const dueDate = parseDate(task.due);
+    return dueDate >= weekStart && dueDate <= today && getTaskStatus(task).isOverdue;
+  });
+  const earned = approved.reduce((sum, task) => sum + task.points, 0);
+  const penalty = missed.reduce((sum, task) => sum + task.points * 2, 0);
+
+  return {
+    range: `${formatShortDate(weekStart)} - ${formatShortDate(weekEnd)}`,
+    approvedCount: approved.length,
+    missedCount: missed.length,
+    cancelledCount: cancelled.length,
+    pendingCount: pending.length,
+    earned,
+    penalty,
+    net: earned - penalty
+  };
 }
 
 function renderThoughtLog(state) {
@@ -724,12 +936,12 @@ function getThoughts(state) {
   } else if (state.completedCount > 0) {
     thoughts.push({
       voice: "Moral Ledger",
-      text: "Closed cases create moral points. Moral points create momentum. Momentum creates fewer side-eyes from the ledger."
+      text: "Approved cases create moral points. Moral points create momentum. Momentum creates fewer side-eyes from the ledger."
     });
   } else {
     thoughts.push({
       voice: "Moral Ledger",
-      text: "No closed cases yet. The first victory is waiting in a cheap suit."
+      text: "No approved cases yet. The first victory is waiting in a cheap suit."
     });
   }
 
@@ -815,6 +1027,13 @@ function formatDueDate(dateString) {
   return `Due ${formatted}`;
 }
 
+function formatShortDate(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
 function formatDateTime(value) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -857,6 +1076,21 @@ function startOfDay(date) {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
   return start;
+}
+
+function startOfWeek(date) {
+  const start = startOfDay(date);
+  const day = start.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  return addDays(start, offset);
+}
+
+function isWithinWeek(value, weekStart, weekEnd) {
+  if (!value) {
+    return false;
+  }
+  const date = startOfDay(new Date(value));
+  return date >= weekStart && date <= weekEnd;
 }
 
 function daysBetween(start, end) {
