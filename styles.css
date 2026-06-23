@@ -542,13 +542,58 @@ input:disabled {
   opacity: 0.7;
 }
 
-.weekly-reckoning {
+.weekly-reckoning,
+.weekly-graph {
   display: grid;
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 250, 240, 0.72);
+}
+
+.weekly-graph svg {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  overflow: visible;
+}
+
+.chart-axis {
+  stroke: rgba(95, 104, 114, 0.34);
+  stroke-width: 2;
+}
+
+.chart-bar {
+  transition: opacity 160ms ease;
+}
+
+.chart-bar.positive {
+  fill: var(--green);
+}
+
+.chart-bar.negative {
+  fill: var(--coral);
+}
+
+.chart-value {
+  fill: var(--ink);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.chart-label,
+.chart-tick {
+  fill: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.chart-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .weekly-heading {

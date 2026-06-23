@@ -883,11 +883,12 @@ function renderAccounting(state) {
   );
 
   const weekly = renderWeeklyReckoning(state.weekly);
+  const graph = renderWeeklyMoralGraph(state.moralLedger);
   const rows = document.createElement("div");
   rows.className = "ledger-rows";
   [...tasks].sort(sortTasks).forEach(task => rows.appendChild(renderLedgerRow(task)));
 
-  ledger.append(summary, weekly, rows);
+  ledger.append(summary, weekly, graph, rows);
   return ledger;
 }
 
@@ -962,6 +963,96 @@ function renderWeeklyReckoning(weekly) {
 
   reckoning.append(heading, metrics);
   return reckoning;
+}
+
+function renderWeeklyMoralGraph(moralLedger) {
+  const weeks = [...moralLedger.closedWeeks, moralLedger.currentWeek].slice(-10);
+  const chartWidth = 720;
+  const chartHeight = 270;
+  const padding = { top: 28, right: 24, bottom: 62, left: 58 };
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const zeroY = padding.top + plotHeight / 2;
+  const maxAbs = Math.max(5, ...weeks.map(week => Math.abs(week.score || 0)));
+  const bandWidth = plotWidth / Math.max(weeks.length, 1);
+  const barWidth = Math.min(54, Math.max(22, bandWidth * 0.54));
+  const svgNamespace = "http://www.w3.org/2000/svg";
+
+  const section = document.createElement("section");
+  section.className = "weekly-graph";
+
+  const heading = document.createElement("div");
+  heading.className = "weekly-heading";
+  const title = document.createElement("h3");
+  title.textContent = "Moral Value Graph";
+  const range = document.createElement("span");
+  range.textContent = `${weeks.length} ${weeks.length === 1 ? "week" : "weeks"}`;
+  heading.append(title, range);
+
+  const svg = document.createElementNS(svgNamespace, "svg");
+  svg.setAttribute("viewBox", `0 0 ${chartWidth} ${chartHeight}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Weekly moral value graph");
+
+  const axis = document.createElementNS(svgNamespace, "line");
+  axis.setAttribute("class", "chart-axis");
+  axis.setAttribute("x1", String(padding.left));
+  axis.setAttribute("x2", String(chartWidth - padding.right));
+  axis.setAttribute("y1", String(zeroY));
+  axis.setAttribute("y2", String(zeroY));
+  svg.appendChild(axis);
+
+  [
+    { value: maxAbs, y: padding.top },
+    { value: 0, y: zeroY },
+    { value: -maxAbs, y: padding.top + plotHeight }
+  ].forEach(tick => {
+    const label = document.createElementNS(svgNamespace, "text");
+    label.setAttribute("class", "chart-tick");
+    label.setAttribute("x", String(padding.left - 12));
+    label.setAttribute("y", String(tick.y + 4));
+    label.setAttribute("text-anchor", "end");
+    label.textContent = formatScore(tick.value);
+    svg.appendChild(label);
+  });
+
+  weeks.forEach((week, index) => {
+    const score = week.score || 0;
+    const x = padding.left + bandWidth * index + (bandWidth - barWidth) / 2;
+    const barHeight = Math.max(2, Math.abs(score) / maxAbs * (plotHeight / 2 - 10));
+    const y = score >= 0 ? zeroY - barHeight : zeroY;
+    const bar = document.createElementNS(svgNamespace, "rect");
+    bar.setAttribute("class", `chart-bar ${score < 0 ? "negative" : "positive"}`);
+    bar.setAttribute("x", String(x));
+    bar.setAttribute("y", String(y));
+    bar.setAttribute("width", String(barWidth));
+    bar.setAttribute("height", String(barHeight));
+    bar.setAttribute("rx", "6");
+    svg.appendChild(bar);
+
+    const value = document.createElementNS(svgNamespace, "text");
+    value.setAttribute("class", "chart-value");
+    value.setAttribute("x", String(x + barWidth / 2));
+    value.setAttribute("y", String(score >= 0 ? y - 8 : y + barHeight + 18));
+    value.setAttribute("text-anchor", "middle");
+    value.textContent = formatScore(score);
+    svg.appendChild(value);
+
+    const label = document.createElementNS(svgNamespace, "text");
+    label.setAttribute("class", "chart-label");
+    label.setAttribute("x", String(x + barWidth / 2));
+    label.setAttribute("y", String(chartHeight - 22));
+    label.setAttribute("text-anchor", "middle");
+    label.textContent = formatWeekGraphLabel(week);
+    svg.appendChild(label);
+  });
+
+  const note = document.createElement("p");
+  note.className = "chart-note";
+  note.textContent = "Positive weeks reset after Sunday. Negative weeks carry into the next tally.";
+
+  section.append(heading, svg, note);
+  return section;
 }
 
 function renderLedgerAmount(label, value, tone = "") {
@@ -1286,6 +1377,8 @@ function getWeeklyReckoning(allTasks, weekStart, weekEnd, penaltyCutoff, isClose
   const penalty = missed.reduce((sum, task) => sum + task.points * 2, 0);
 
   return {
+    weekStart: toDateInput(weekStart),
+    weekEnd: toDateInput(weekEnd),
     range: `${formatShortDate(weekStart)} - ${formatShortDate(weekEnd)}`,
     approvedCount: approved.length,
     missedCount: missed.length,
@@ -1463,6 +1556,17 @@ function formatDueDate(dateString) {
 function formatShortDate(date) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+function formatWeekGraphLabel(week) {
+  const date = parseDate(week.weekStart);
+  if (!date) {
+    return "Week";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "numeric",
     day: "numeric"
   }).format(date);
 }
